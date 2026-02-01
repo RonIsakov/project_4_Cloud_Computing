@@ -1,0 +1,275 @@
+name: assignment4
+
+on:
+  push:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Initialize log file with timestamp and submitter information
+      - name: Initialize log file
+        run: |
+          date -Iminutes > log.txt
+          echo "Ron Isakov, Noam Kyram" >> log.txt
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Build the pet-store Docker image
+      - name: Build and export pet-store
+        id: build_pet_store
+        uses: docker/build-push-action@v5
+        with:
+          context: ./pet-store
+          file: ./pet-store/Dockerfile
+          tags: pet-store:latest
+          outputs: type=docker,dest=/tmp/pet-store.tar
+
+      # Log pet-store build status
+      - name: Log pet-store success
+        if: success()
+        run: echo -n "image pet-store successfully built; " >> log.txt
+
+      - name: Log pet-store failure
+        if: failure() && steps.build_pet_store.outcome == 'failure'
+        run: echo -n "image pet-store not able to be built; " >> log.txt
+
+      # Build the pet-order Docker image
+      - name: Build and export pet-order
+        id: build_pet_order
+        uses: docker/build-push-action@v5
+        with:
+          context: ./pet-order
+          file: ./pet-order/Dockerfile
+          tags: pet-order:latest
+          outputs: type=docker,dest=/tmp/pet-order.tar
+
+      # Log pet-order build status
+      - name: Log pet-order success
+        if: success()
+        run: echo "image pet-order successfully built;" >> log.txt
+
+      - name: Log pet-order failure
+        if: failure() && steps.build_pet_order.outcome == 'failure'
+        run: echo "image pet-order not able to be built;" >> log.txt
+
+      # Upload Docker images and log file as artifacts
+      - name: Upload Docker images
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-images
+          path: |
+            /tmp/pet-store.tar
+            /tmp/pet-order.tar
+
+      - name: Upload log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: log.txt
+
+
+  test:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download Docker images
+        uses: actions/download-artifact@v4
+        with:
+          name: docker-images
+
+      - name: Download log
+        uses: actions/download-artifact@v4
+        with:
+          name: build-log
+
+      - name: Load Docker images
+        run: |
+          docker load -i pet-store.tar
+          docker load -i pet-order.tar
+
+      - name: Create network
+        run: docker network create pet-network
+
+      # Start MongoDB containers for data persistence
+      - name: Start MongoDB containers
+        run: |
+          docker run -d --name mongo-store --network pet-network mongo:latest
+          docker run -d --name mongo-order --network pet-network mongo:latest
+
+      # Wait for the pet-store MongoDB instance to be ready
+      - name: Wait for mongo-store
+        run: |
+          echo "Waiting for mongo-store to be ready..."
+          for i in {1..30}; do
+            if docker exec mongo-store mongosh --quiet --eval "db.adminCommand({ping: 1})" > /dev/null 2>&1; then
+              echo "mongo-store is ready!"
+              exit 0
+            fi
+            echo "Attempt $i: mongo-store not ready yet, waiting..."
+            sleep 2
+          done
+          echo "mongo-store failed to start in time"
+          docker logs mongo-store
+          exit 1
+
+      # Wait for the pet-order MongoDB instance to be ready
+      - name: Wait for mongo-order
+        run: |
+          echo "Waiting for mongo-order to be ready..."
+          for i in {1..30}; do
+            if docker exec mongo-order mongosh --quiet --eval "db.adminCommand({ping: 1})" > /dev/null 2>&1; then
+              echo "mongo-order is ready!"
+              exit 0
+            fi
+            echo "Attempt $i: mongo-order not ready yet, waiting..."
+            sleep 2
+          done
+          echo "mongo-order failed to start in time"
+          docker logs mongo-order
+          exit 1
+
+      # Start application containers and log their status
+      - name: Run application containers
+        run: |
+          docker run -d --name pet-store1 -p 5001:8000 --network pet-network -e MONGO_URI=mongodb://mongo-store:27017/pet_store -e STORE_ID=1 pet-store:latest && \
+          echo -n "Container pet-store #1 up and running; " >> log.txt || echo -n "Container pet-store #1 failed to run; " >> log.txt
+
+          docker run -d --name pet-store2 -p 5002:8000 --network pet-network -e MONGO_URI=mongodb://mongo-store:27017/pet_store -e STORE_ID=2 pet-store:latest && \
+          echo -n "Container pet-store #2 up and running; " >> log.txt || echo -n "Container pet-store #2 failed to run; " >> log.txt
+
+          docker run -d --name pet-order -p 5003:8080 --network pet-network -e MONGO_URI=mongodb://mongo-order:27017/pet_store pet-order:latest && \
+          echo "Container pet-order up and running;" >> log.txt || echo "Container pet-order failed to run;" >> log.txt
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: pip install pytest requests
+
+      # Execute test suite and log results
+      - name: Run tests
+        id: run_tests
+        run: |
+          pytest -v tests/assn4_tests.py > assn4_test_results.txt
+         
+      - name: Log test results
+        if: always()
+        run: |
+          if [ "${{ steps.run_tests.outcome }}" == "success" ]; then
+            echo "All pytests succeeded" >> log.txt
+          else
+            echo "pytests failed" >> log.txt
+          fi
+
+      - name: Upload log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: log
+          path: log.txt
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest
+          path: assn4_test_results.txt
+
+  query:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Download Docker images from build job artifacts
+      - name: Download Docker images
+        uses: actions/download-artifact@v4
+        with:
+          name: docker-images
+
+      # Load Docker images into the local Docker daemon
+      - name: Load Docker images
+        run: |
+          docker load -i pet-store.tar
+          docker load -i pet-order.tar
+
+      # Create Docker network for container communication
+      - name: Create network
+        run: docker network create pet-network
+
+      # Start MongoDB containers for data persistence
+      - name: Start MongoDB containers
+        run: |
+          docker run -d --name mongo-store --network pet-network mongo:latest
+          docker run -d --name mongo-order --network pet-network mongo:latest
+
+      # Wait for the pet-store MongoDB instance to be ready
+      - name: Wait for mongo-store
+        run: |
+          for i in {1..30}; do
+            if docker exec mongo-store mongosh --quiet --eval "db.adminCommand({ping: 1})" > /dev/null 2>&1; then
+              echo "mongo-store is ready!"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "mongo-store failed to start in time"
+          exit 1
+
+      # Wait for the pet-order MongoDB instance to be ready
+      - name: Wait for mongo-order
+        run: |
+          for i in {1..30}; do
+            if docker exec mongo-order mongosh --quiet --eval "db.adminCommand({ping: 1})" > /dev/null 2>&1; then
+              echo "mongo-order is ready!"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "mongo-order failed to start in time"
+          exit 1
+
+      # Start application containers connected to the network
+      - name: Run application containers
+        run: |
+          docker run -d --name pet-store1 -p 5001:8000 --network pet-network -e MONGO_URI=mongodb://mongo-store:27017/pet_store -e STORE_ID=1 pet-store:latest
+          docker run -d --name pet-store2 -p 5002:8000 --network pet-network -e MONGO_URI=mongodb://mongo-store:27017/pet_store -e STORE_ID=2 pet-store:latest
+          docker run -d --name pet-order -p 5003:8080 --network pet-network -e MONGO_URI=mongodb://mongo-order:27017/pet_store pet-order:latest
+
+      # Allow services to initialize before running queries
+      - name: Wait for services
+        run: sleep 5
+
+      # Set up Python environment for query execution
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      # Execute API queries against the running services
+      - name: Execute queries
+        run: python scripts/execute_queries.py
+
+      # Upload query response as artifact
+      - name: Upload response
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: response
+          path: response.txt

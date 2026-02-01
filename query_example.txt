@@ -1,0 +1,13 @@
+query: 1,type=Golden Retriever;
+query: 2,family=Canidae;
+query: 1,genus=Felis;
+query: 2,lifespan=15;
+query: 1,type=bulldog;
+query: 2,genus=NonExistent;
+purchase: {"purchaser": "John", "pet-type": "Golden Retriever", "store": 1};
+purchase: {"purchaser": "Jane", "pet-type": "bulldog", "store": 2, "pet-name": "Lazy"};
+purchase: {"purchaser": "Bob", "pet-type": "Abyssinian"};
+purchase: {"purchaser": "Alice", "pet-type": "NonExistentAnimal", "store": 1};
+purchase: {"purchaser": "Eve", "pet-type": "Golden Retriever", "store": 1, "pet-name": "NoSuchPet"};
+purchase: {"pet-type": "Golden Retriever"};
+purchase: {"purchaser": "Tom", "pet-type": "Golden Retriever", "store": 5};
