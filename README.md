@@ -2,8 +2,6 @@
 
 A production-ready pet store application demonstrating microservices architecture, containerization best practices, and automated CI/CD workflows with GitHub Actions.
 
-[![CI/CD Pipeline](https://github.com/your-username/pet-store-microservices/actions/workflows/assignment4.yml/badge.svg)](https://github.com/your-username/pet-store-microservices/actions)
-
 ## Highlights
 
 - **Microservices Architecture** - Loosely coupled services with dedicated databases
@@ -326,17 +324,25 @@ pytest -v tests/assn4_tests.py
 
 ### Execute Custom Queries
 
-```bash
-# Create a query.txt file
-echo 'query: 1,family=Canidae;' > query.txt
+Create a `query.txt` file in the **root of the repository**:
 
-# Run the query executor
+```bash
+# Example query.txt content
+cat > query.txt << 'EOF'
+query: 1,type=Golden Retriever;
+query: 2,family=Canidae;
+purchase: {"purchaser": "John", "pet-type": "Golden Retriever", "store": 1};
+EOF
+
+# Run the query executor (requires services to be running)
 pip install requests
 python scripts/execute_queries.py
 
-# Check results
+# View results
 cat response.txt
 ```
+
+See [Job 3: Query](#job-3-query) for detailed syntax documentation.
 
 ---
 
@@ -386,7 +392,9 @@ cat response.txt
 ├── scripts/
 │   └── execute_queries.py    # Dynamic query executor
 ├── docker-compose.yml        # Local orchestration
-└── query_example.txt         # Sample query format
+├── query.txt                 # INPUT: Place query file here for Job 3
+├── response.txt              # OUTPUT: Generated results from Job 3
+└── query_example.txt         # Sample query format reference
 ```
 
 ---
